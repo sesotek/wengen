@@ -1,0 +1,152 @@
+# THIS SCRIPT IS APPENDED TO THE TEMPORARY JOB SCRIPT
+# optional extra_param: +noAnytimeMigration +noNotifyChildInReduction 
+
+CURRENT_DIR=`pwd`
+CHARM_DIR="$HOME/src/charm"
+CHANGA_DIR="$HOME/src/changa"
+
+
+# Collect test options to go into log file
+
+# Get version numbers
+CHARM_COMMIT=`git --git-dir=${CHARM_DIR}/.git/ log --pretty=format:"%H - %cd" | head -1`
+CHANGA_COMMIT=`git --git-dir=${CHANGA_DIR}/.git/ log --pretty=format:"%H - %cd" | head -1`
+
+# Outfile options
+CHARM_BUILD=`ls -al ${CHARM_DIR}/tmp | awk '{print $NF}'`
+
+
+# Defaults - these are in the format they would come from env
+# ie. booleans are 0 or 1
+MPI_VER=""
+HOST="ls"
+DEFAULT_TEST_NAME="testChanga"
+DEFAULT_CONSPH="0"
+DEFAULT_BALANCER=""
+DEFAULT_LBDEBUG="2"
+DEFAULT_VERBOSITY="1"
+DEFAULT_LBP="0.1"
+DEFAULT_PARAM_FILE="${WORK}/wengen/disk_ad.param"
+
+
+# Set the final job options
+# These will be tha values given to the commandline
+# Booleans first
+if [ -z $CONSPH ]; then
+    CONSPH="${DEFAULT_CONSPH}"
+fi
+
+if [ -z "${LBP}" ]; then
+    LBP="${DEFAULT_LBP}"
+fi
+
+if [ -z "${VERBOSITY}" ]; then
+    VERBOSITY="${DEFAULT_VERBOSITY}"
+fi
+
+if [ -z "${LBDEBUG}" ]; then
+    LBDEBUG="${DEFAULT_LBDEBUG}"
+fi
+
+
+
+CONSPH_PARAM=""
+if [ "${CONSPH}" = "1" ]; then
+    CONSPH_PARAM="+consph"
+fi
+    
+if [ -z $DOMAIN ]; then
+    DOMAIN="0"
+fi
+
+if [ -z ${TEST_NAME} ]; then
+    TEST_NAME="${DEFAULT_TEST_NAME}"
+fi
+
+if [ -z $PIECES ]; then
+    PIECES="Def"
+fi
+
+if [ -z ${PARAM_FILE} ]; then
+    PARAM_FILE="${DEFAULT_PARAM_FILE}"
+fi
+
+
+# Don't specify tree pieces if set to default
+# Default pieces is 8*cores. Max should be when there are 1000 particles per piece.
+if [ "${PIECES}" = "Def" ]; then
+    PIECES_PARAM=""
+else
+    PIECES_PARAM="-p ${PIECES}"
+fi
+# Don't specify balancer if not specified
+if [ -z $BALANCER ]; then
+    BALANCER_PARAM=""
+    BALANCER="None"
+else
+    BALANCER_PARAM="+balancer ${BALANCER}"
+fi
+
+
+# Create nodelist file from the pe_hostfile
+# PE_HOSTFILE: <hostname> <number of procs on host> <queue name> <proc numbers>
+# Temp Hostfile: list of unique hostnames, one per line. Each line preceeded with "host".
+# ie: host <hostname>
+NODELIST="./nodelist.$$.tmp"
+echo group main ++cpus ${PPN} ++shell ssh -X > ${NODELIST}
+cat ${PE_HOSTFILE} | cut -f1 -d " "| tr [:blank:] "\n" | sort | uniq | sed -e 's/^/host /' >> ${NODELIST}
+
+
+# Name the output file (if it's not already named from commandline)
+if [ -z ${OUT_FILE} ]; then
+    OUT_FILE="${WORK}/outs/${HOST}_${TEST_NAME}_${BUILD}${MPI_VER}_pbs${NUM_NODES}.${PPN}_LBp${LBP}_D${DOMAIN}-p${PIECES}_Bal${BALANCER}-$$.out"
+fi
+
+
+# Clear output file
+echo > ${OUT_FILE}
+
+# Output all the test options
+echo '## BEGIN TESTOPTS ##' >> ${OUT_FILE}
+
+echo 'DATE: '`date` >> ${OUT_FILE}
+echo 'NODES: '${NUM_NODES} >> ${OUT_FILE} 
+echo 'PPN: '${PPN} >> ${OUT_FILE} 
+echo 'CHARM_BUILD: '${CHARM_BUILD} >> ${OUT_FILE} 
+echo 'CHARM_COMMIT: '${CHARM_COMMIT} >> ${OUT_FILE} 
+echo 'CHANGA_COMMIT: '${CHANGA_COMMIT} >> ${OUT_FILE} 
+echo 'BALANCER: '${BALANCER} >> ${OUT_FILE}
+echo 'PIECES: '${PIECES} >> ${OUT_FILE}
+echo 'DOMAIN: '${DOMAIN} >> ${OUT_FILE} 
+echo 'CONSPH: '${CONSPH} >> ${OUT_FILE} 
+echo 'LBPERIOD: '${LBP} >> ${OUT_FILE}
+echo 'VERBOSITY: '${VERBOSITY} >> ${OUT_FILE}
+echo 'LBDEBUG: '${LBDEBUG} >> ${OUT_FILE}
+echo 'PARAM_FILE: '${PARAM_FILE} >> ${OUT_FILE} 
+echo 'NODELIST: '${NODELIST} >> ${OUT_FILE} 
+echo 'EXECFILE: '${0} >> ${OUT_FILE}
+echo 'EXTRA_PARAMS: '${EXTRA_PARAMS} >> ${OUT_FILE}
+echo 'EXTRA_TAGS: '${EXTRA_TAGS} >> ${OUT_FILE}
+echo >> ${OUT_FILE}
+
+echo '## END TESTOPTS ##' >> ${OUT_FILE}
+
+
+# Add job info to output file
+echo "Job ID: "${JOBID} >> ${OUT_FILE}
+echo "The master node of this job is "`hostname` >> ${OUT_FILE}
+echo "This job is running on ${NUM_PROCS} processors" >> ${OUT_FILE}
+echo >> ${OUT_FILE}
+echo "PE_HOSTFILE list:" >> ${OUT_FILE}
+cat ${PE_HOSTFILE} >> ${OUT_FILE}
+echo >> ${OUT_FILE}
+echo "Nodelist:"
+cat ${NODELIST} >> ${OUT_FILE}
+echo '.'>> ${OUT_FILE}
+
+echo "**** BEFORE RUN ****" >> ${OUT_FILE}
+
+# Run the timing script for charm/ChaNGa${HOME}/bin/nadiabat.sh ${OUT_FILE} ${HOME}/bin/charmrun ++p ${NUM_PROCS} ++ppn ${PPN} ++nodelist ${NODELIST} ${HOME}/bin/ChaNGa -v ${VERBOSITY} +LBDebug ${LBDEBUG} ${CONSPH_PARAM} -D ${DOMAIN} +LBPeriod ${LBP} ${BALANCER_PARAM} ${PIECES_PARAM} ${EXTRA_PARAMS} ${PARAM_FILE} >> ${OUT_FILE}
+
+echo >> ${OUT_FILE}
+echo "**** AFTER RUN ****" >> ${OUT_FILE}
